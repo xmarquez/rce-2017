@@ -1,0 +1,274 @@
+---
+title: 'RCE: Visualizing the Results Part 1'
+author: 'Xavier Marquez'
+date: 'June 2 2017'
+output: html_document
+---
+
+```{r setup2, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache.rebuild = TRUE)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(lubridate)
+
+```
+
+
+
+```{r download}
+
+data <- read.delim("download.csv", 
+                   header=TRUE, 
+                   skipNul=TRUE, 
+                   encoding="latin1",
+                   stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  repair_names() %>%
+  select(-contains("Auto.Score"), 
+         -contains("Manual.Score"), 
+         -contains("Possible.Points"),
+         -contains("Question.ID")) 
+
+names(data)[1] <- "Username"
+
+questions.1 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.4:Question.24) %>%
+  select(-Question.25:-Question.50, -Question.1:-Question.3) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+questions.2 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.29:Question.49) %>%
+  select(-Question.1:-Question.28, -Question.50) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+# questions.1
+
+questions <- bind_rows(questions.1, questions.2) 
+
+answers.1 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.4:Answer.24) %>%
+  select(-Answer.26:-Answer.50) %>%
+  rename(country = Answer.1, 
+         begin_year = Answer.2, 
+         end_year = Answer.3,
+         justification = Answer.25) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year))
+
+answers.2 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.29:Answer.49) %>%
+  select(-Answer.1:-Answer.25) %>%
+  rename(country = Answer.26, 
+         begin_year = Answer.27, 
+         end_year = Answer.28,
+         justification = Answer.50) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year),
+         country = ifelse(Username == "marchwagat", "Venezuela", country))
+
+answers <- bind_rows(answers.1, answers.2)  
+
+both <- full_join(questions, answers) %>%
+  mutate(question.category = as.factor(question.category),
+         country = ifelse(country == "Djbouti", "Djibouti", country),
+         answer.numeric = ifelse(is.na(answer.numeric), 1, answer.numeric))
+
+by_category <- both %>%
+  group_by(Username, Last.Name, First.Name, country, begin_year, end_year, question.category) %>%
+  summarise(category_total = sum(answer.numeric))
+
+by_country <- by_category %>%
+  spread(question.category, category_total) %>%
+  rename(civil_liberties = `Civil Liberties`,
+         democratic_institutions = `Democratic Political Institutions`,
+         institutionalized_rule = `Institutionalized Rule`) %>%
+  mutate(democracy_score = democratic_institutions + civil_liberties + institutionalized_rule) %>%
+  group_by(Username, Last.Name, First.Name, country, democratic_institutions, civil_liberties, institutionalized_rule, inequality, democracy_score) %>%
+  do(data_frame(year = .$begin_year:.$end_year))
+
+countries <- by_country %>%
+  ungroup() %>%
+  distinct(country, year) %>%
+  PoliticalDatasets::to_gw_system()
+
+by_country_matched <- left_join(by_country, countries)
+
+by_country_avg <- by_country_matched %>%
+  group_by(country_name, GWn, year, in_system) %>%
+  summarise(democratic_institutions = mean(democratic_institutions),
+            civil_liberties = mean(civil_liberties),
+            institutionalized_rule = mean(institutionalized_rule),
+            inequality = mean(inequality),
+            democracy_score = mean(democracy_score))
+
+by_country_avg <- left_join(by_country_avg,
+                            QuickUDS::democracy)
+
+by_country_avg <- left_join(by_country_avg,
+                            QuickUDS::extended_uds)
+
+# write.csv("by_country_avg.csv")
+```
+
+(This post may be updated as new data come in. Another post analysing the correlation between our regime data and inequality data will appear later - check back on the blog for more next week). 
+
+(Last updated `r lubridate::now()`)
+
+We have now gathered enough data to start answering the research question you selected at the beginning of the term. You designed a classification system in tutorials, and individually gathered data on `r length(unique(by_country_avg$country_name))` countries. 
+
+Most countries were classified by only one person, but some were classified for different time periods by two people. Some of you chose longer periods, others chose shorter periods of time, but most chose periods of at least 10 years (median 11 years, min 2 years, max 58), which gives us a reasonable amount of regime data (`r nrow(by_country_avg)` country-years, including some transitions to democracy or to authoritarianism, since the periods chosen by you sometimes overlapped for a given country). 
+
+# Correlations with other democracy scores
+
+The overall agreement of your results with those of other organizations is really good; your classification correlates at more than 0.8 with several major democracy indexes (Figure 1), including the [Freedom House][FH] index of freedom, the [Polity IV][Polity] measure of political institutions, several of the [V-Dem indexes of democracy](https://www.v-dem.net/en/) (`v2x_` variables), and my own extension of the [Unified Democracy Scores](http://xmarquez.github.io/QuickUDS/): 
+
+```{r correlations}
+
+library(GGally)
+
+ggcorr(by_country_avg %>%
+         ungroup() %>%
+         select(democracy_score,
+                freedomhouse,
+                polity2, v2x_api:v2x_polyarchy,
+                index) %>%
+         rename(uds_extended = index,
+                pols209_score = democracy_score), 
+       label = TRUE,
+       label_round = 2,
+       layout.exp = 5,
+       hjust = 0.9) +
+  labs(title = "Figure 1. Correlation between POLS209 measure of democracy\nwith other measures of democracy",
+       subtitle = "POLS209 score at the bottom of graph. v2x variables are from the V-Dem project.")
+
+```
+
+This is not bad at all; as you can see, the correlations between professionally-collected measures of democracy are a bit higher (usually around 0.9), but 0.8 is a very high correlation (indeed, higher than the correlation between some of these large-scale indexes and [some of the more obscure measures of democracy out there](http://xmarquez.github.io/QuickUDS/articles/Spatial_and_temporal_coverage.html)). There are some important differences (see Figure 2 below) between your scores and those of other organizations, but professionals do not always agree about whether a country is democratic or not, or when it changed. Perhaps I should restore some of your points!
+
+## Country Scores
+
+The simplest thing to do with this data is simply to average each of your country scores (if more than one person researched the country, and the periods chosen overlapped) and plot the results per country, showing the variation over time and space in the POLS209 "democracy score", as in Figure 2. I've also added (dotted line) the Freedom House scores for your countries, for the period in question, so you can see some of the differences between the way you classified these countries, and the way in which other people do:
+
+```{r scores_plot, fig.height=25 }
+
+by_country_avg <- by_country_matched %>%
+  group_by(country_name, GWn, year, in_system) %>%
+  summarise(democratic_institutions = mean(democratic_institutions),
+            civil_liberties = mean(civil_liberties),
+            institutionalized_rule = mean(institutionalized_rule),
+            inequality = mean(inequality),
+            democracy_score = mean(democracy_score),
+            num_raters = length(Username)) %>%
+  ungroup() %>%
+  mutate(regime_type = cut(democracy_score,
+                           3,
+                           labels = c("Non-democratic",
+                                      "Hybrid",
+                                      "Democratic"),
+                           include.lowest=TRUE)) %>%
+  group_by(country_name, GWn) %>%
+  mutate(group = PoliticalDatasets::count_sequence_breaks(year),
+         country_label = paste0(country_name, " (", max(num_raters),")"))
+
+by_country_avg <- full_join(by_country_avg,
+                            PoliticalDatasets::fh %>%
+                              select(country_name, GWn, year, freedomhouse) %>%
+                              mutate(fh = scales::rescale(freedomhouse)*33 + 6)) %>%
+  filter(!is.na(country_label))
+
+ggplot(data = by_country_avg, aes(x = year, 
+                                  y = democracy_score,
+                                  color = regime_type,
+                                  group = group)) +
+  geom_path() +
+  geom_path(aes(y = fh), color = "black", linetype = 2) +
+  facet_wrap(~country_label, ncol=4) +
+  labs(title = "Figure 2. POLS209 scores for different countries.",
+       color = "Regime type",
+       subtitle = "Number of students rating the country in parenthesis\nBlack dotted line is the Freedom House \nrating for the country, rescaled to the range of POLS209 scores")
+
+
+```
+
+I have divided the scores into three equal ranges (shown by different-colored lines), with the lowest scores representing non-democratic regimes, the highest democracies, and the middle range hybrid regimes. This division is arbitrary: we could set the cutpoints in different places if you prefer, or use different labels. 
+
+In general, these scores look sensible, though there are clearly many small differences from the Freedom House scores. The biggest of these is probably China, which appears, unusually, as a hybrid regime for a period of time (whereas Freedom House and other indexes have is as a clearly non-democratic regime for the entire period). But other countries -- Bhutan, for example -- are also rated very differently by this class than by organiations like Freedom House. Why might that be the case?  
+
+The three subcomponents of your scores are also highly but not perfectly correlated:
+
+```{r correlations_2}
+
+library(GGally)
+
+ggcorr(by_country_avg %>%
+         ungroup() %>%
+         select(democratic_institutions,
+                civil_liberties,
+                institutionalized_rule), 
+       label = TRUE,
+       label_round = 2,
+       layout.exp = 5,
+       hjust = 0.9) +
+  labs(title = "Figure 3. Correlation between different components\nof POLS209 measure of democracy")
+
+```
+
+We can see how they look for each country in Figure 4:
+
+```{r component_scores_plot, fig.height=25 }
+
+scores <- by_country_avg %>%
+  gather(score_name, score, democratic_institutions, civil_liberties, institutionalized_rule) %>%
+  mutate(score_name = stringr::str_replace(score_name, "_", " "))
+
+
+ggplot(data = scores, aes(x = year, 
+                          y = score,
+                          color = score_name,
+                          group = paste(group, score_name))) +
+  geom_path() +
+  facet_wrap(~country_label, ncol=4) +
+  labs(title = "Figure 4. Components of POLS209 scores for different countries.",
+       color = "Component",
+       subtitle = "Number of students rating the country in parenthesis")
+
+
+```
+
+In some countries, scores for "institutionalized rule" are higher than those for civil liberties or democratic institutions; in others, the reverse may be true. Why might that be the case?
+
+There's more we could say about these scores, but this is probably a good starter. And another post is coming on the relationship between inequality and our scores for these regimes soon...
+
+[Code]: https://github.com/xmarquez/rce-2017
+[Polity]: http://www.systemicpeace.org/inscr/
+[FH]: http://freedomhouse.org
