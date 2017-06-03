@@ -187,25 +187,9 @@ ggplot(data = data, aes(x = v2x_polyarchy,
 
 ```
 
-There is a clearer relationship here, but it's pretty slight; lots of democracies are very unequal, and at least some non-democracies are fairly equal. Here's an interactive version of the same graph (hover over each dot to see what country-year it represents):
+There is a clearer relationship here, but it's pretty slight; lots of democracies are very unequal, and at least some non-democracies are fairly equal. 
 
-```{r vdemcorr_interactive}
-library(plotly)
-
-p <- ggplot(data = data, aes(x = v2x_polyarchy,
-                             y = mean_value,
-                             text = paste(country_name, year))) +
-  geom_point() +
-  labs(y = "Net gini index of inequality\n(higher is more unequal)",
-       x = "V-Dem polyarchy index\n(higher is more democratic)",
-       title = "Scatterplot of income inequality against V-Dem polyarchy index")
-
-ggplotly(p)
-```
-
-Basically, the most equal countries (in terms of net income) appear to be either Scandinavian social democracies or communist authoritarian regimes.
-
-But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time . It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
+But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time to change. It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
 
 ```{r by_country_POLS209, fig.height=25}
 
@@ -267,7 +251,7 @@ ggplot(data = data_2,
   coord_flip()
 ```
 
-Basically, in Albania and Russia income inequality increased greatly with the transition from communist authoritarianism (more democracy meant more inequality); at the bottom, in Bhutan, more democracy meant less inequality.
+Basically, in Albania and Russia income inequality increased in lockstep with more democracy (the transition from communist authoritarianism meant more inequality, in a fairly linear relationship); at the bottom, in Bhutan, more democracy meant less inequality.
 
 But there is little consistent relationship; in about half the countries democracy and inequality moved in the same direction, and in the other half in opposite directions. Why might that be the case? (Note there are many possibilities: perhaps we're not using the right tests, or the right measures; perhaps the data is insufficient; perhaps there's something else going on. What do you think?)
 
