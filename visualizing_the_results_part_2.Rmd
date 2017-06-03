@@ -148,7 +148,7 @@ For reasons of data availability, however, in the rest of this post we will be u
 
 ## Is there any correlation between democracy and income inequality?
 
-The first graph shows you a simple scatterplot of this measur of inequality index vs. the POLS209 democracy score. (Dots are "jittered" a bit to avoid overplotting). 
+The first graph shows you a simple scatterplot of this measure of inequality index vs. the POLS209 democracy score. 
 
 ```{r scatterplot}
 
@@ -168,7 +168,7 @@ ggplot(data = by_country_avg, aes(x = democracy_score,
 
 As we can see, there's not much correlation between levels of democracy and levels of inequality; though democracies are very slightly more democratic than non-democracies (as indicated by the slope of the line), the difference is so small as to be basically statistical noise.
 
-It's possible that this is because of quirks in our measure of democracy. Maybe we don't have enough years, or you were too idiosyncratic in your judgments. But here's a scatterplot using the "Gold Standard" of democrayc measures, the [V-Dem polyarchy index](https://www.v-dem.net/en/):
+It's possible that this is because of quirks in our measure of democracy. Maybe we don't have enough years, or you were too idiosyncratic in your judgments. But here's a scatterplot using the "gold standard" of democracy measures, the [V-Dem polyarchy index](https://www.v-dem.net/en/):
 
 ```{r vdemcorr}
 
@@ -187,7 +187,7 @@ ggplot(data = data, aes(x = v2x_polyarchy,
 
 ```
 
-There is a clearer relationship here, but it's pretty slight; lots of democracies are very unequal, and at least some non-democracies are fairly equal. 
+There is a clearer relationship here, but it's pretty slight; lots of democratic country-years are very unequal, and at least some non-democratic country-years are fairly equal. 
 
 But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time to change. It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
 
@@ -203,9 +203,9 @@ ggplot(data = by_country_avg, aes(x = year)) +
 
 ```
 
-We could complicate this figure, but basically, inequality seems pretty stable: becoming more or less democratic does not seem to change the level of inequality much anywhere. 
+We could complicate this figure, but basically, inequality seems pretty stable: becoming more or less democratic does not seem to change the level of inequality much in any of our countries 
 
-You may wonder whether this is perhaps an artifact of our measure, so let's try re-doing the graph using the V-Dem polyarchy index:
+You may wonder whether this is perhaps an artifact of our measure, so let's try re-doing the graph using the V-Dem polyarchy index (with many more country-years):
 
 ```{r vdem_inequality, fig.height=35}
 
@@ -219,7 +219,7 @@ ggplot(data = data, aes(x = year)) +
 
 ```
 
-Again, not much change in inequality with changes in democracy levels is detectable here; democratization (or loss of democracy appears not to affect the level of democracy that much). What is going on here? Are these the wrong measures? 
+Again, not much change in inequality with changes in democracy levels is detectable here; democratization (or loss of democracy) appears not to affect the level of democracy that much. What is going on here? 
 
 One final graph. We could simply try to figure out how related changes in democracy are to changes in inequality, per country. This is a bit technical (basically I calculate the correlation between inequality and democracy for each country; positive correlations mean inequality increases with democracy, negative ones the reverse), but in the graph below, countries at the top are those where more (less) democracy is correlated with higher (lower) inequality (even if the change is not very visible in the pictures above), and countries at the bottom are those where more (less) democracy is correlated with less (more) income inequality:
 
@@ -251,11 +251,11 @@ ggplot(data = data_2,
   coord_flip()
 ```
 
-Basically, in Albania and Russia income inequality increased in lockstep with more democracy (the transition from communist authoritarianism meant more inequality, in a fairly linear relationship); at the bottom, in Bhutan, more democracy meant less inequality.
+This graph tells us, for example, that in Albania and Russia income inequality increased in lockstep with more democracy (the transition from communist authoritarianism meant more inequality, in a fairly linear relationship); at the bottom, in Bhutan, more democracy meant less inequality.
 
 But there is little consistent relationship; in about half the countries democracy and inequality moved in the same direction, and in the other half in opposite directions. Why might that be the case? (Note there are many possibilities: perhaps we're not using the right tests, or the right measures; perhaps the data is insufficient; perhaps there's something else going on. What do you think?)
 
-I'll leave things here for now, but more analysis coming next week!
+I'll leave things here for now, but more analysis coming next week! What would you like to see?
 
 
 
