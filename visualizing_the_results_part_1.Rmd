@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = FALSE,
                       cache = TRUE,
                       warning = FALSE,
                       message = FALSE,
-                      cache.rebuild = TRUE)
+                      cache.rebuild = FALSE)
 
 library(readr)
 library(dplyr)

@@ -1,0 +1,277 @@
+---
+title: "RCE: Visualizing the Results, Part 2"
+author: "Xavier Marquez"
+date: "June 4, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache.rebuild = FALSE)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(lubridate)
+
+```
+
+
+
+```{r download}
+
+data <- read.delim("download.csv", 
+                   header=TRUE, 
+                   skipNul=TRUE, 
+                   encoding="latin1",
+                   stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  repair_names() %>%
+  select(-contains("Auto.Score"), 
+         -contains("Manual.Score"), 
+         -contains("Possible.Points"),
+         -contains("Question.ID")) 
+
+names(data)[1] <- "Username"
+
+questions.1 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.4:Question.24) %>%
+  select(-Question.25:-Question.50, -Question.1:-Question.3) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+questions.2 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.29:Question.49) %>%
+  select(-Question.1:-Question.28, -Question.50) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+# questions.1
+
+questions <- bind_rows(questions.1, questions.2) 
+
+answers.1 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.4:Answer.24) %>%
+  select(-Answer.26:-Answer.50) %>%
+  rename(country = Answer.1, 
+         begin_year = Answer.2, 
+         end_year = Answer.3,
+         justification = Answer.25) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year))
+
+answers.2 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.29:Answer.49) %>%
+  select(-Answer.1:-Answer.25) %>%
+  rename(country = Answer.26, 
+         begin_year = Answer.27, 
+         end_year = Answer.28,
+         justification = Answer.50) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year),
+         country = ifelse(Username == "marchwagat", "Venezuela", country))
+
+answers <- bind_rows(answers.1, answers.2)  
+
+both <- full_join(questions, answers) %>%
+  mutate(question.category = as.factor(question.category),
+         country = ifelse(country == "Djbouti", "Djibouti", country),
+         answer.numeric = ifelse(is.na(answer.numeric), 1, answer.numeric))
+
+by_category <- both %>%
+  group_by(Username, Last.Name, First.Name, country, begin_year, end_year, question.category) %>%
+  summarise(category_total = sum(answer.numeric))
+
+by_country <- by_category %>%
+  spread(question.category, category_total) %>%
+  rename(civil_liberties = `Civil Liberties`,
+         democratic_institutions = `Democratic Political Institutions`,
+         institutionalized_rule = `Institutionalized Rule`) %>%
+  mutate(democracy_score = democratic_institutions + civil_liberties + institutionalized_rule) %>%
+  group_by(Username, Last.Name, First.Name, country, democratic_institutions, civil_liberties, institutionalized_rule, inequality, democracy_score) %>%
+  do(data_frame(year = .$begin_year:.$end_year))
+
+countries <- by_country %>%
+  ungroup() %>%
+  distinct(country, year) %>%
+  PoliticalDatasets::to_gw_system()
+
+by_country_matched <- left_join(by_country, countries)
+
+by_country_avg <- by_country_matched %>%
+  group_by(country_name, GWn, year, in_system) %>%
+  summarise(democratic_institutions = mean(democratic_institutions),
+            civil_liberties = mean(civil_liberties),
+            institutionalized_rule = mean(institutionalized_rule),
+            inequality = mean(inequality),
+            democracy_score = mean(democracy_score))
+
+# write.csv("by_country_avg.csv")
+```
+
+(This post is a bit more complicated than [the first one](https://github.com/xmarquez/rce-2017/blob/master/visualizing_the_results_part_1.html). It will also be updated if new data -- late submissions -- come in. Another post with more complex analysis may be coming up later).
+
+(Last updated `r lubridate::now()`)
+
+Our research question calls for figuring out whether democracies are more or less unequal than non-democracies. Figuring out whether political regimes (democratic or non-democratic) actually cause increases or decreases in inequality is an extremely difficult task, since there can be many confounding factors, and we only have limited measures of either side of the equation. So we may have to settle for observing some interesting correlations.
+
+POLS209 created a measure of democracy (and other regimes), and as you probably figured out from actually carrying out the exercise, democracy is difficult to measure. But inequality is also difficult to measure. For one thing, there are many kinds of inequality: economic, social, gender, ethnic, etc. And we disagree about which of these forms of inequality are most important. 
+
+But even if we restrict ourselves to economic inequality, there are many different forms of inequality we could be measuring (wealth vs. income inequality, for example), and many different types of measures we could use (the gini index of net inequality vs. the share of income going to the top 1 percent, for example). However, most of these measures are unavailable for many countries, or they are gathered on irregular schedules and with varying degrees of precision. 
+
+For reasons of data availability, however, in the rest of this post we will be using the [gini index of net income inequality compiled by Frederick Solt](http://fsolt.org/swiid/). The Gini index is not perfect, but it does tell us something abut how unequal a society is: if the index is 100, all the income goes to one person (perfect concentration), and if it is zero, then income is equally distributed. (We're using the "net inequality" index, which reflects income inequality after people have paid their taxes and received any transfers from the state).
+
+## Is there any correlation between democracy and income inequality?
+
+The first graph shows you a simple scatterplot of this measur of inequality index vs. the POLS209 democracy score. (Dots are "jittered" a bit to avoid overplotting). 
+
+```{r scatterplot}
+
+by_country_avg <- left_join(by_country_avg, 
+                            AuthoritarianismBook::swiid_summary_5 %>% 
+                              select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
+                              filter(variable == "gini_net"))
+
+ggplot(data = by_country_avg, aes(x = democracy_score,
+                                  y = mean_value)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "POLS209 democracy score\n(higher is more democratic)",
+       title = "Scatterplot of income inequality against POLS209 democracy score")
+```
+
+As we can see, there's not much correlation between levels of democracy and levels of inequality; though democracies are very slightly more democratic than non-democracies (as indicated by the slope of the line), the difference is so small as to be basically statistical noise.
+
+It's possible that this is because of quirks in our measure of democracy. Maybe we don't have enough years, or you were too idiosyncratic in your judgments. But here's a scatterplot using the "Gold Standard" of democrayc measures, the [V-Dem polyarchy index](https://www.v-dem.net/en/):
+
+```{r vdemcorr}
+
+data <- inner_join(QuickUDS::democracy, 
+                            AuthoritarianismBook::swiid_summary_5 %>% 
+                              select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
+                              filter(variable == "gini_net"))
+
+ggplot(data = data, aes(x = v2x_polyarchy,
+                             y = mean_value)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "V-Dem polyarchy index\n(higher is more democratic)",
+       title = "Scatterplot of income inequality against V-Dem polyarchy index")
+
+```
+
+There is a clearer relationship here, but it's pretty slight; lots of democracies are very unequal, and at least some non-democracies are fairly equal. Here's an interactive version of the same graph (hover over each dot to see what country-year it represents):
+
+```{r vdemcorr_interactive}
+library(plotly)
+
+p <- ggplot(data = data, aes(x = v2x_polyarchy,
+                             y = mean_value,
+                             text = paste(country_name, year))) +
+  geom_point() +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "V-Dem polyarchy index\n(higher is more democratic)",
+       title = "Scatterplot of income inequality against V-Dem polyarchy index")
+
+ggplotly(p)
+```
+
+Basically, the most equal countries (in terms of net income) appear to be either Scandinavian social democracies or communist authoritarian regimes.
+
+But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time . It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
+
+```{r by_country_POLS209, fig.height=25}
+
+ggplot(data = by_country_avg, aes(x = year)) +
+  geom_path(aes(y = scales::rescale(democracy_score) * 100), color = "black") +
+  geom_path(aes(y = mean_value), color = "red") +
+  labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
+       x = "Year",
+       title = "Inequality and democracy over time, POLS209 measure") +
+  facet_wrap(~country_name, ncol = 4)
+
+```
+
+We could complicate this figure, but basically, inequality seems pretty stable: becoming more or less democratic does not seem to change the level of inequality much anywhere. 
+
+You may wonder whether this is perhaps an artifact of our measure, so let's try re-doing the graph using the V-Dem polyarchy index:
+
+```{r vdem_inequality, fig.height=35}
+
+ggplot(data = data, aes(x = year)) +
+  geom_path(aes(y = v2x_polyarchy * 100), color = "black") +
+  geom_path(aes(y = mean_value), color = "red") +
+  labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
+       x = "Year",
+       title = "Inequality and democracy over time, V-Dem polyarchy measure") +
+  facet_wrap(~country_name, ncol = 4)
+
+```
+
+Again, not much change in inequality with changes in democracy levels is detectable here; democratization (or loss of democracy appears not to affect the level of democracy that much). What is going on here? Are these the wrong measures? 
+
+One final graph. We could simply try to figure out how related changes in democracy are to changes in inequality, per country. This is a bit technical (basically I calculate the correlation between inequality and democracy for each country; positive correlations mean inequality increases with democracy, negative ones the reverse), but in the graph below, countries at the top are those where more (less) democracy is correlated with higher (lower) inequality (even if the change is not very visible in the pictures above), and countries at the bottom are those where more (less) democracy is correlated with less (more) income inequality:
+
+```{r country_correlations, fig.height=35}
+library(purrr)
+data_2 <- data %>%
+  group_by(country_name) %>%
+  filter(!is.na(mean_value), 
+         !is.na(v2x_polyarchy),
+         n() > 5) %>% 
+  summarise(v2x_polyarchy = list(v2x_polyarchy), mean_value = list(mean_value)) %>%
+  mutate(cor_test = map2(v2x_polyarchy, mean_value, ~ broom::tidy(cor.test(.x, .y)))) %>% 
+  unnest(cor_test)
+
+ggplot(data = data_2,
+       aes(x = forcats::fct_reorder(country_name, estimate, na.rm =TRUE),
+           y = estimate)) +
+  geom_pointrange(aes(ymin = conf.low, 
+                      ymax = conf.high)) +
+  labs(x = "",
+       y = "Estimated correlation",
+       color = "Measure",
+       title = "Correlation between changes in democracy (V-Dem)\n and changes in inequality",
+       subtitle = "At the top, greater inequality is associated \nwith greater democracy (and vice-versa)") +
+  theme_bw() +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(ncol=2)) +
+  geom_hline(yintercept = 0, color = "red") +
+  coord_flip()
+```
+
+Basically, in Albania and Russia income inequality increased greatly with the transition from communist authoritarianism (more democracy meant more inequality); at the bottom, in Bhutan, more democracy meant less inequality.
+
+But there is little consistent relationship; in about half the countries democracy and inequality moved in the same direction, and in the other half in opposite directions. Why might that be the case? (Note there are many possibilities: perhaps we're not using the right tests, or the right measures; perhaps the data is insufficient; perhaps there's something else going on. What do you think?)
+
+I'll leave things here for now, but more analysis coming next week!
+
+
+
