@@ -1,0 +1,206 @@
+---
+title: "RCE: Visualizing the Results, Part 4"
+author: "Xavier Marquez"
+date: "June 9, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache.rebuild = FALSE)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(lubridate)
+
+```
+
+
+
+```{r download}
+
+data <- read.delim("download.csv", 
+                   header=TRUE, 
+                   skipNul=TRUE, 
+                   encoding="latin1",
+                   stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  repair_names() %>%
+  select(-contains("Auto.Score"), 
+         -contains("Manual.Score"), 
+         -contains("Possible.Points"),
+         -contains("Question.ID")) 
+
+names(data)[1] <- "Username"
+
+questions.1 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.4:Question.24) %>%
+  select(-Question.25:-Question.50, -Question.1:-Question.3) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+questions.2 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.29:Question.49) %>%
+  select(-Question.1:-Question.28, -Question.50) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+# questions.1
+
+questions <- bind_rows(questions.1, questions.2) 
+
+answers.1 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.4:Answer.24) %>%
+  select(-Answer.26:-Answer.50) %>%
+  rename(country = Answer.1, 
+         begin_year = Answer.2, 
+         end_year = Answer.3,
+         justification = Answer.25) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year))
+
+answers.2 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.29:Answer.49) %>%
+  select(-Answer.1:-Answer.25) %>%
+  rename(country = Answer.26, 
+         begin_year = Answer.27, 
+         end_year = Answer.28,
+         justification = Answer.50) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year),
+         country = ifelse(Username == "marchwagat", "Venezuela", country))
+
+answers <- bind_rows(answers.1, answers.2)  
+
+both <- full_join(questions, answers) %>%
+  mutate(question.category = as.factor(question.category),
+         country = ifelse(country == "Djbouti", "Djibouti", country),
+         answer.numeric = ifelse(is.na(answer.numeric), 1, answer.numeric))
+
+by_category <- both %>%
+  group_by(Username, Last.Name, First.Name, country, begin_year, end_year, question.category) %>%
+  summarise(category_total = sum(answer.numeric))
+
+by_country <- by_category %>%
+  spread(question.category, category_total) %>%
+  rename(civil_liberties = `Civil Liberties`,
+         democratic_institutions = `Democratic Political Institutions`,
+         institutionalized_rule = `Institutionalized Rule`) %>%
+  mutate(democracy_score = democratic_institutions + civil_liberties + institutionalized_rule) %>%
+  group_by(Username, Last.Name, First.Name, country, democratic_institutions, civil_liberties, institutionalized_rule, inequality, democracy_score) %>%
+  do(data_frame(year = .$begin_year:.$end_year))
+
+countries <- by_country %>%
+  ungroup() %>%
+  distinct(country, year) %>%
+  PoliticalDatasets::to_gw_system()
+
+by_country_matched <- left_join(by_country, countries)
+
+by_country_avg <- by_country_matched %>%
+  group_by(country_name, GWn, year, in_system) %>%
+  summarise(democratic_institutions = mean(democratic_institutions),
+            civil_liberties = mean(civil_liberties),
+            institutionalized_rule = mean(institutionalized_rule),
+            inequality = mean(inequality),
+            democracy_score = mean(democracy_score))
+
+# write.csv("by_country_avg.csv")
+```
+
+## Inequality and the Components of the POLS209 Score
+
+Jessica asked me to do check whether the relationship with inequality is different for the different components of the POLS209 democracy score (democratic rights, civil liberties, and institutionalized rule). Here's the result:
+
+```{r scatterplot}
+
+by_country_avg <- left_join(by_country_avg, 
+                            AuthoritarianismBook::swiid_summary_5 %>% 
+                              select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
+                              filter(variable == "gini_net")) %>%
+  group_by(country_name, GWn) %>%
+  mutate(group = PoliticalDatasets::count_sequence_breaks(year),
+         period = paste(PoliticalDatasets::count_sequence_breaks(year), country_name)) %>%
+  ungroup() 
+
+data <- by_country_avg %>%
+  gather(component, value, democratic_institutions:institutionalized_rule) %>%
+  rename(gini = mean_value)
+  
+ggplot(data = data, aes(x = value,
+                                  y = gini,
+                                  color = component)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "Component of POLS209 democracy score\n(higher is more democratic/\nmore civil liberties/more institutionalized)",
+       title = "Figure 1. Scatterplot of income inequality against components of POLS209 democracy score")
+```
+
+As we can see, there is a slightly stronger relationship between lower inequality and higher levels of institutionalized rule than the relationship between democratic institutions or civil liberties with inequality. (It's still weak and dispersed, but it's a bit stronger).
+
+Here's an interactive version of the same plot so you can check which dots are which country-years. (Values are jittered a bit to avoid overplotting).
+
+```{r scatterplot_interactive}
+
+p <- ggplot(data = data, aes(x = value,
+                                  y = gini,
+                                  color = component,
+                                  text = paste(country_name, year))) +
+  geom_point(position = "jitter") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "Component of POLS209 democracy score\n(higher is more democratic/\nmore civil liberties/more institutionalized)",
+       title = "Figure 1. Scatterplot of income inequality against \ncomponents of POLS209 democracy score")
+
+library(plotly)       
+
+ggplotly(p)
+```
+
+# Justifications
+
+Here's a table with the various justifications offered for the classifications:
+
+```{r justifications_table}
+
+justifications <- both %>%
+  group_by(Username, Last.Name, First.Name, country, begin_year, end_year, question.category, justification) %>%
+  summarise(category_total = sum(answer.numeric)) %>%
+  filter(question.category != "inequality") %>%
+  spread(question.category, category_total) %>%
+  ungroup() %>%
+  select(-Username:-First.Name) %>%
+  select(country, begin_year, end_year, `Civil Liberties`, `Democratic Political Institutions`, `Institutionalized Rule`, justification) %>%
+  arrange(country, begin_year) %>%
+  rename(`First year` = begin_year, `Last year` = end_year)
+
+knitr::kable(justifications)
+
+```
+
