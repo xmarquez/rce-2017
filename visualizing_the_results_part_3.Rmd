@@ -327,7 +327,7 @@ Your perceptions of inequality do correlate with actual levels of inequality, bu
 
 # Controlling for other factors
 
-One thing that came up in discussions was whether poorer and richer states have different capacity to redistribute income. Richer states may be more able to redistribute income than poorer states. Here we do a quick check of this via a "partial correlation" plot, that is, a correlation plot after controlling for the per-capita income of the country, whether it's a communist country, and whether it's after 1980: 
+One thing that came up in discussions was whether poorer and richer states have different capacities to redistribute income. Richer states may be more able to redistribute income than poorer states. Here we do a quick check of this via a "partial correlation" plot, that is, a correlation plot after controlling for the per-capita income of the country, whether it's a communist country, and whether it's after 1980: 
 
 ```{r control}
 econ_data <- AuthoritarianismBook::economic_data %>%

@@ -221,7 +221,8 @@ ggplot(data = by_country_avg, aes(x = year, group = group)) +
   geom_path(aes(y = mean_value), color = "red") +
   labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
        x = "Year",
-       title = "Inequality and democracy over time, POLS209 measure") +
+       title = "Inequality and democracy over time, POLS209 measure",
+       subtitle = "Inequality in red, democracy in black") +
   facet_wrap(~country_name, ncol = 4)
 
 ```
@@ -241,12 +242,13 @@ ggplot(data = data %>% filter(year > 1959), aes(x = year)) +
   geom_path(aes(y = mean_value, group = ineq_period), color = "red") +
   labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
        x = "Year",
-       title = "Inequality and democracy over time, V-Dem polyarchy measure") +
+       title = "Inequality and democracy over time, V-Dem polyarchy measure",
+       subtitle = "Inequality in red, democracy in black") +
   facet_wrap(~country_name, ncol = 4)
 
 ```
 
-Again, not much change in inequality with changes in democracy levels is detectable here; democratization (or loss of democracy) appears not to affect the level of democracy that much. What is going on here? 
+Again, not much change in inequality with changes in democracy levels is detectable here; democratization (or loss of democracy) appears not to affect the level of inequality that much (though some changes are difficult to see, since the pictures are really small). What is going on here? 
 
 One final graph. We could simply try to figure out how related changes in democracy are to changes in inequality, per country. This is a bit technical (basically I calculate the correlation between inequality and democracy for each country; positive correlations mean inequality increases with democracy, negative ones the reverse), but in the graph below, countries at the top are those where more (less) democracy is correlated with higher (lower) inequality (even if the change is not very visible in the pictures above), and countries at the bottom are those where more (less) democracy is correlated with less (more) income inequality:
 
