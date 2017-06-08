@@ -198,7 +198,10 @@ by_country_avg <- by_country_matched %>%
                            include.lowest=TRUE)) %>%
   group_by(country_name, GWn) %>%
   mutate(group = PoliticalDatasets::count_sequence_breaks(year),
-         country_label = paste0(country_name, " (", max(num_raters),")"))
+         country_label = paste0(country_name, " (", max(num_raters),")"),
+         period = paste(PoliticalDatasets::count_sequence_breaks(year), country_name)) %>%
+  ungroup()
+
 
 by_country_avg <- full_join(by_country_avg,
                             PoliticalDatasets::fh %>%
@@ -215,14 +218,14 @@ ggplot(data = by_country_avg, aes(x = year,
   facet_wrap(~country_label, ncol=4) +
   labs(title = "Figure 2. POLS209 scores for different countries.",
        color = "Regime type",
-       subtitle = "Number of students rating the country in parenthesis\nBlack dotted line is the Freedom House \nrating for the country, rescaled to the range of POLS209 scores")
+       subtitle = "Number of students rating the country in parentheses\nBlack dotted line is the Freedom House \nrating for the country, rescaled to the range of POLS209 scores")
 
 
 ```
 
 I have divided the scores into three equal ranges (shown by different-colored lines), with the lowest scores representing non-democratic regimes, the highest democracies, and the middle range hybrid regimes. This division is arbitrary: we could set the cutpoints in different places if you prefer, or use different labels. 
 
-In general, these scores look sensible, though there are clearly many small differences from the Freedom House scores. The biggest of these is probably China, which appears, unusually, as a hybrid regime for a period of time (whereas Freedom House and other indexes have is as a clearly non-democratic regime for the entire period). But other countries -- Bhutan, for example -- are also rated very differently by this class than by organiations like Freedom House. Why might that be the case?  
+In general, these scores look sensible, though there are clearly many small differences from the Freedom House scores. The biggest of these is probably China, which appears, unusually, as a hybrid regime for a period of time (whereas Freedom House and other indexes have is as a clearly non-democratic regime for the entire period). But other countries -- Bhutan, for example -- are also rated very differently by this class than by organizations like Freedom House. Why might that be the case?  
 
 The three subcomponents of your scores are also highly but not perfectly correlated:
 

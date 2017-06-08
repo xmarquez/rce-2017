@@ -1,0 +1,405 @@
+---
+title: "RCE: Visualizing the Results, Part 3"
+author: "Xavier Marquez"
+date: "June 8, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache.rebuild = FALSE)
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(tidyr)
+library(lubridate)
+
+```
+
+
+
+```{r download}
+
+data <- read.delim("download.csv", 
+                   header=TRUE, 
+                   skipNul=TRUE, 
+                   encoding="latin1",
+                   stringsAsFactors = FALSE) %>%
+  as_tibble() %>%
+  repair_names() %>%
+  select(-contains("Auto.Score"), 
+         -contains("Manual.Score"), 
+         -contains("Possible.Points"),
+         -contains("Question.ID")) 
+
+names(data)[1] <- "Username"
+
+questions.1 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.4:Question.24) %>%
+  select(-Question.25:-Question.50, -Question.1:-Question.3) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+questions.2 <-  data %>%
+  select(-contains("Answer")) %>%
+  gather(question.ID, question.text, Question.29:Question.49) %>%
+  select(-Question.1:-Question.28, -Question.50) %>%
+  mutate(question.category = stringr::str_extract(question.text, 
+                                                  "Democratic Political Institutions|Civil Liberties|Institutionalized Rule|inequality"),
+         id = stringr::str_extract(question.ID, "[0-9]+") %>%
+           as.numeric())
+
+# questions.1
+
+questions <- bind_rows(questions.1, questions.2) 
+
+answers.1 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.4:Answer.24) %>%
+  select(-Answer.26:-Answer.50) %>%
+  rename(country = Answer.1, 
+         begin_year = Answer.2, 
+         end_year = Answer.3,
+         justification = Answer.25) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year))
+
+answers.2 <- data %>%
+  select(-contains("Question")) %>%
+  gather(answer.ID, answer.text, Answer.29:Answer.49) %>%
+  select(-Answer.1:-Answer.25) %>%
+  rename(country = Answer.26, 
+         begin_year = Answer.27, 
+         end_year = Answer.28,
+         justification = Answer.50) %>%
+  mutate(answer.numeric = parse_number(answer.text),
+         begin_year = parse_number(begin_year),
+         end_year = parse_number(end_year),
+         id = stringr::str_extract(answer.ID, "[0-9]+") %>%
+           as.numeric(),
+         justification = qdap::bracketX(justification),
+         country = qdap::bracketX(country),
+         end_year = ifelse(is.na(end_year), 2017, end_year),
+         country = ifelse(Username == "marchwagat", "Venezuela", country))
+
+answers <- bind_rows(answers.1, answers.2)  
+
+both <- full_join(questions, answers) %>%
+  mutate(question.category = as.factor(question.category),
+         country = ifelse(country == "Djbouti", "Djibouti", country),
+         answer.numeric = ifelse(is.na(answer.numeric), 1, answer.numeric))
+
+by_category <- both %>%
+  group_by(Username, Last.Name, First.Name, country, begin_year, end_year, question.category) %>%
+  summarise(category_total = sum(answer.numeric))
+
+by_country <- by_category %>%
+  spread(question.category, category_total) %>%
+  rename(civil_liberties = `Civil Liberties`,
+         democratic_institutions = `Democratic Political Institutions`,
+         institutionalized_rule = `Institutionalized Rule`) %>%
+  mutate(democracy_score = democratic_institutions + civil_liberties + institutionalized_rule) %>%
+  group_by(Username, Last.Name, First.Name, country, democratic_institutions, civil_liberties, institutionalized_rule, inequality, democracy_score) %>%
+  do(data_frame(year = .$begin_year:.$end_year))
+
+countries <- by_country %>%
+  ungroup() %>%
+  distinct(country, year) %>%
+  PoliticalDatasets::to_gw_system()
+
+by_country_matched <- left_join(by_country, countries)
+
+by_country_avg <- by_country_matched %>%
+  group_by(country_name, GWn, year, in_system) %>%
+  summarise(democratic_institutions = mean(democratic_institutions),
+            civil_liberties = mean(civil_liberties),
+            institutionalized_rule = mean(institutionalized_rule),
+            inequality = mean(inequality),
+            democracy_score = mean(democracy_score))
+
+# write.csv("by_country_avg.csv")
+```
+
+(In this post, I try to answer some queries raised during the tutorials).
+
+## Is it all about communism?
+
+One interesting point raised in tutorials concerns the role of communist regimes. If we remove the communist regimes (before 1989), do we find a stronger relationship between economic equality and political equality (democracy)? Here's a quick attempt to replicate the scatterplot in the previous post with different regression lines for communist and non-communist countries (I'm going to include China after 1989 as "non-communist"):
+
+```{r scatterplot}
+
+data_with_communism <- left_join(by_country_avg, 
+                            AuthoritarianismBook::swiid_summary_5 %>% 
+                              select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
+                              filter(variable == "gini_net")) %>%
+  left_join(AuthoritarianismBook::kailitz_yearly) %>%
+  ungroup() %>%
+  mutate(communist = ifelse(is.na(communist), FALSE, communist),
+         communist = ifelse(country_name == "China" & year > 1989, FALSE, communist),
+         communist = forcats::fct_recode(as.character(communist), Communist  = "TRUE", `Not communist` = "FALSE") %>%
+           forcats::fct_rev())
+
+ggplot(data = data_with_communism, aes(x = democracy_score,
+                                  y = mean_value,
+                                  color = communist)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "POLS209 democracy score\n(higher is more democratic)",
+       title = "Figure 1. Scatterplot of income inequality against POLS209 democracy score") +
+  facet_wrap(~communist)
+
+
+```
+
+There is now a slightly stronger relationship between economic and political equality if the communist countries are put aside, but it's still weaker than we might expect (the dots are not tightly bunched up around the regression line).
+
+Here's an interactive version of the same graph (hover over the dots to see which country-years they represent):
+
+```{r scatterplot_interactive}
+p <- ggplot(data = data_with_communism %>%
+              rename(gini = mean_value), aes(x = democracy_score,
+                                  y = gini,
+                                  color = communist,
+                                  text = paste(country_name, year))) +
+  geom_point(position = "jitter") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "POLS209 democracy score\n(higher is more democratic)",
+       title = "Figure 1 (interactive).Scatterplot of income inequality against POLS209 democracy score") +
+  facet_wrap(~communist)
+
+library(plotly)
+
+ggplotly(p)
+
+```
+
+We can repeat the exercise with the V-Dem measure of democracy to check whether more and better data changes anything:
+
+```{r vdemcorr}
+
+data <- inner_join(QuickUDS::democracy, 
+                            AuthoritarianismBook::swiid_summary_5 %>% 
+                              select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
+                              filter(variable == "gini_net")) %>%
+  left_join(AuthoritarianismBook::kailitz_yearly) %>%
+  mutate(communist = ifelse(is.na(communist) & year > 1990, FALSE, communist),
+         communist = ifelse(country_name == "China" & year > 1989, FALSE, communist),
+         communist = ifelse(country_name %in% c("Armenia", 
+                                                "Azerbaijan",
+                                                "Czech Republic",
+                                                "Belarus (Byelorussia)",
+                                                "Croatia",
+                                                "Georgia",
+                                                "Kyrgyz Republic",
+                                                "Latvia",
+                                                "Lithuania",
+                                                "Moldova",
+                                                "Rumania",
+                                                "Slovenia",
+                                                "Tajikistan",
+                                                "Turkmenistan",
+                                                "Ukraine",
+                                                "Uzbekistan") & year < 1991 & year > 1986, TRUE, communist),
+         communist = ifelse(is.na(communist), FALSE, communist),
+         communist = forcats::fct_recode(as.character(communist), Communist  = "TRUE", `Not communist` = "FALSE") %>%
+           forcats::fct_rev())
+
+ggplot(data = data, aes(x = v2x_polyarchy,
+                             y = mean_value,
+                        color = communist)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "V-Dem polyarchy index\n(higher is more democratic)",
+       title = "Figure 2. Scatterplot of income inequality against V-Dem polyarchy index") +
+  facet_wrap(~communist)
+```
+
+Again, there is some relationship, but it doesn't change much; democracies (more politically equal countries) are slightly more economically equal countries when we exclude the communist regimes, but the relationship is weak.
+
+Here's an interactive version, so you can hover over the dots and see which country they represent:
+
+```{r vdem_interactive}
+
+p <- ggplot(data = data %>%
+              rename(gini = mean_value), aes(x = v2x_polyarchy,
+                                  y = gini,
+                                  color = communist,
+                                  text = paste(country_name, year))) +
+  geom_point(position = "jitter") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "VDem Polyarchy index\n(higher is more democratic)",
+       title = "Figure 2 (interactive).Scatterplot of income inequality against VDem democracy score") +
+  facet_wrap(~communist)
+
+library(plotly)
+
+ggplotly(p)
+```
+
+## Is it all about the reforms of the 1980s?
+
+Another point that was raised was whether the relationship might have changed with the "neoliberal" reforms of the 1980s. (I don't much like the term neoliberal, which is used to mean many different things, but it can be useful as shorthand for the sort of market-oriented reforms of the 1980s). For a quick check of that hypothesis, using the POLS209 data, I simply split the sample into pre- and post-1980 periods (1980 is a useful starting point because Margaret Thatcher became prime minister in 1979, Ronald Reagan became president in 1981, and New Zealand's "neoliberal reforms" are commonly dated to 1984):
+
+```{r scatterplot2}
+
+data_with_communism <- data_with_communism %>%
+  mutate(post1980 = ifelse(year > 1980, "Post 1980", "Pre 1980")) 
+
+ggplot(data = data_with_communism, aes(x = democracy_score,
+                                  y = mean_value,
+                                  color = communist)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "POLS209 democracy score\n(higher is more democratic)",
+       title = "Figure 3. Scatterplot of income inequality against POLS209 democracy score",
+       subtitle = "Split by pre and post 1980s reform") +
+  facet_wrap(~post1980)
+```
+
+There is less data on the pre-1980 period for your measure, but it does seem to show that the relationship between democracy and equality was stronger before 1980 than after 1980. As usual, we can repeat the exercise with the V-Dem data:
+
+```{r vdem_2}
+
+data <- data %>%
+  mutate(post1980 = ifelse(year > 1980, "Post 1980", "Pre 1980"))
+
+ggplot(data = data %>% filter(!is.na(communist)), aes(x = v2x_polyarchy,
+                             y = mean_value,
+                        color = communist)) +
+  geom_point(position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "V-Dem polyarchy index\n(higher is more democratic)",
+       title = "Figure 4. Scatterplot of income inequality against V-Dem polyarchy index",
+       subtitle = "Split by pre and post 1980s reforms") +
+  facet_wrap(~post1980)
+```
+
+With this data, the relationship between democracy and equality is also slightly stronger in the pre 1980 period than before, though again much less data is available there, and several other explanations for the observed patterns are plausible. (For example, there are more new and imperfect democracies in the post 1980 period; there are the transitions from communism; etc.).
+
+Note that these checks are very quick - we would have to date things more precisely (finding the date of reforms for specific countries) to figure things out properly; these are all correlations, which may be due to other factors.
+
+# Maybe it's all about perceptions of inequality?
+
+One interesting point I didn't mention in the previous post is how your perceptions of inequality correlate with the measure of inequality we're using:
+
+```{r inequality_corr}
+
+library(GGally)
+
+ineq <- data_with_communism %>%
+         ungroup() %>%
+         select(democracy_score,
+                mean_value,
+                inequality) %>%
+         mutate(inequality = 2-inequality) %>%
+  rename(pols209_inequality = inequality,
+         swiid_gini = mean_value,
+         pols209_democracy_score = democracy_score)
+
+ggcorr(ineq, 
+       label = TRUE,
+       label_round = 2,
+       layout.exp = 5,
+       hjust = 0.9) +
+  labs(title = "Figure 5. Correlation between POLS209 measure of inequality\nwith SWIID measure of inequality")
+
+```
+
+Your perceptions of inequality do correlate with actual levels of inequality, but at a lower level than your perceptions of democracy correlate with other people's assessment of democracy. This may be because this question didn't ask you to do research, but it suggests that perceptions of inequality may be more important than actual levels of income inequality for how democracy affects economic equality. 
+
+# Controlling for other factors
+
+One thing that came up in discussions was whether poorer and richer states have different capacity to redistribute income. Richer states may be more able to redistribute income than poorer states. Here we do a quick check of this via a "partial correlation" plot, that is, a correlation plot after controlling for the per-capita income of the country, whether it's a communist country, and whether it's after 1980: 
+
+```{r control}
+econ_data <- AuthoritarianismBook::economic_data %>%
+                    group_by(country_name, GWn, year) %>%
+                    summarise(per_capita = median(per_capita, na.rm =TRUE))
+
+data_with_communism <- left_join(data_with_communism, econ_data) %>% 
+  filter(!is.na(mean_value), !is.na(democracy_score))
+
+regression_gini <- lm(mean_value ~ log(per_capita) + communist + post1980, data = data_with_communism) 
+regression_democ <- lm(democracy_score ~ log(per_capita) + communist + post1980, data = data_with_communism) 
+
+residuals_gini <- residuals(regression_gini) 
+residuals_democ <- residuals(regression_democ)
+
+residuals_data <- data_frame(residuals_gini, residuals_democ)
+
+ggplot(residuals_data, aes(y = residuals_gini, x = residuals_democ))+
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(y = "Residuals from regression of gini index\non per capita income, communism, and post-1980 reforms",
+       x = "Residuals from regression of POLS209 democracy index\non per capita income, communism, and post-1980 reforms",
+       title = "Figure 6. Partial correlation between gini index and POLS209 democracy score",
+       subtitle = "After controlling for per-capita income, communism, and post-1980 reforms")
+
+data <- left_join(data, econ_data) %>% 
+  filter(!is.na(mean_value), !is.na(v2x_polyarchy))
+
+regression_gini <- lm(mean_value ~ log(per_capita) + communist + post1980, data = data) 
+regression_democ <- lm(v2x_polyarchy ~ log(per_capita) + communist + post1980, data = data) 
+
+residuals_gini <- residuals(regression_gini) 
+residuals_democ <- residuals(regression_democ)
+
+residuals_data <- data_frame(residuals_gini, residuals_democ)
+
+ggplot(residuals_data, aes(y = residuals_gini, x = residuals_democ))+
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(y = "Residuals from regression of gini index\non per capita income, communism, and post-1980 reforms",
+       x = "Residuals from regression of V-Dem polyarchy index\non per capita income, communism, and post-1980 reforms",
+       title = "Figure 7. Partial correlation between gini index and V-Dem democracy score",
+       subtitle = "After controlling for per-capita income, communism, and post-1980 reforms")
+
+```
+
+Basically, what this is telling us is that after we take into account per-capita income, communist status, and post-1980 reforms, not much relationship remains between democracy and inequality; countries at similar levels of wealth, communist status, and post-1980 status have similar levels of income inequality, regardless of differences in their level of democracy. This is not to say that democracy doesn't matter, but the relationship may not be obvious and direct. In a simple regression, for example, the level of democracy does have an independent effect on the level of inequality:
+
+```{r}
+data_with_communism <- data_with_communism %>%
+  mutate(POLS209_democracy_score = scales::rescale(democracy_score))
+
+regression_2 <- lm(mean_value ~ POLS209_democracy_score + log(per_capita) + communist + post1980, data = data_with_communism) %>%
+  tidy() %>%
+  mutate(model = "Using POLS209 democracy score")
+
+regression <- lm(mean_value ~ v2x_polyarchy + log(per_capita) + communist + post1980, data = data) %>%
+  tidy() %>%
+  mutate(model = "Using V-Dem democracy score")
+
+library(dotwhisker)
+library(broom)
+
+dwplot(bind_rows(regression_2, regression)) + 
+  labs(title = "Figure 8. Regression coefficients for simple regression of\nGini index on other variables",
+       subtitle = "Other variables are the democracy index (POLS209 and VDem), log per capita income,\ncommunist status, and post-1980 status")
+
+```
+
+Basically, what this is saying is that an increase of 1 point in the V-Dem democracy index -- from no democracy at all to full democracy, since the V-Dem index goes from 0 to 1 -- is associated with about 6 points decrease in the gini index (not much, but not nothing), after controlling for the other factors. (Using the POLS209 democracy measure, and going from the lowest to highest level of democracy would only net us a decrease of about 3 points). By contrast, non-communist status is associated with a 14 point higher gini index -- communist countries are much more equal, in other words -- after controlling for other factors; pre-1980, countries were about 2 points more equal than afterwards; and a doubling of income per capita (say, from \$1000 per capita to \$2000 per capita) is associated with about 3 points of decline in the gini index. (Going from poor country status, say \$1000 per capita, to rich country status, say \$40,000 per capita, would be associated with a decline in the gini index of about 12 points; rich countries are typically more equal than poor countries, in other words, perhaps because they are more able to redistribute resources).
+
+Now, this is not the last word on the matter. There are much more sophisticated tests we could devise for figuring out how this relationship is supposed to work. This is just a very simple correlational analysis, and a time-series analysis, in particular, might work better (and it would be more difficult to do). But in general there seems to be very little obvious connection between *income* inequality and democracy. Maybe there is a clearer relation between other forms of equality and democracy (after all, democracy is a kind of political equality; and perhaps democracy thrives especially when social equality exists, for example), but we seem unable to find a relationship beween democracy and economic equality in this case. What is going on here? What might explain these findings?
+
+(More coming, if I have time).
+

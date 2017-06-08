@@ -155,7 +155,11 @@ The first graph shows you a simple scatterplot of this measure of inequality ind
 by_country_avg <- left_join(by_country_avg, 
                             AuthoritarianismBook::swiid_summary_5 %>% 
                               select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
-                              filter(variable == "gini_net"))
+                              filter(variable == "gini_net")) %>%
+  group_by(country_name, GWn) %>%
+  mutate(group = PoliticalDatasets::count_sequence_breaks(year),
+         period = paste(PoliticalDatasets::count_sequence_breaks(year), country_name)) %>%
+  ungroup()
 
 ggplot(data = by_country_avg, aes(x = democracy_score,
                                   y = mean_value)) +
@@ -163,16 +167,16 @@ ggplot(data = by_country_avg, aes(x = democracy_score,
   geom_smooth(method = "lm") +
   labs(y = "Net gini index of inequality\n(higher is more unequal)",
        x = "POLS209 democracy score\n(higher is more democratic)",
-       title = "Scatterplot of income inequality against POLS209 democracy score")
+       title = "Figure 1. Scatterplot of income inequality against POLS209 democracy score")
 ```
 
-As we can see, there's not much correlation between levels of democracy and levels of inequality; though democracies are very slightly more democratic than non-democracies (as indicated by the slope of the line), the difference is so small as to be basically statistical noise.
+As we can see, there's not much correlation between levels of democracy and levels of inequality; though democracies are very slightly more democratic than non-democracies (as indicated by the slope of the line), the difference is very small.
 
 It's possible that this is because of quirks in our measure of democracy. Maybe we don't have enough years, or you were too idiosyncratic in your judgments. But here's a scatterplot using the "gold standard" of democracy measures, the [V-Dem polyarchy index](https://www.v-dem.net/en/):
 
 ```{r vdemcorr}
 
-data <- inner_join(QuickUDS::democracy, 
+data <- left_join(QuickUDS::democracy, 
                             AuthoritarianismBook::swiid_summary_5 %>% 
                               select(country_name, GWn, year, variable, mean_value, pct025, pct975) %>%
                               filter(variable == "gini_net"))
@@ -183,17 +187,36 @@ ggplot(data = data, aes(x = v2x_polyarchy,
   geom_smooth(method = "lm") +
   labs(y = "Net gini index of inequality\n(higher is more unequal)",
        x = "V-Dem polyarchy index\n(higher is more democratic)",
-       title = "Scatterplot of income inequality against V-Dem polyarchy index")
+       title = "Figure 2. Scatterplot of income inequality against V-Dem polyarchy index")
 
 ```
 
 There is a clearer relationship here, but it's pretty slight; lots of democratic country-years are very unequal, and at least some non-democratic country-years are fairly equal. 
 
+(Here's an intercative version of this plot - hover over the dots to identify particular countries);
+
+```{r vdem_interactive}
+
+p <- ggplot(data = data %>%
+              rename(gini = mean_value), aes(x = v2x_polyarchy,
+                                  y = gini,
+                                  text = paste(country_name, year))) +
+  geom_point(position = "jitter") +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "VDem Polyarchy index\n(higher is more democratic)",
+       title = "Figure 2 (interactive).Scatterplot of income inequality against VDem democracy score")
+
+library(plotly)
+
+ggplotly(p)
+
+```
+
 But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time to change. It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
 
 ```{r by_country_POLS209, fig.height=25}
 
-ggplot(data = by_country_avg, aes(x = year)) +
+ggplot(data = by_country_avg, aes(x = year, group = group)) +
   geom_path(aes(y = scales::rescale(democracy_score) * 100), color = "black") +
   geom_path(aes(y = mean_value), color = "red") +
   labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
@@ -209,9 +232,13 @@ You may wonder whether this is perhaps an artifact of our measure, so let's try 
 
 ```{r vdem_inequality, fig.height=35}
 
-ggplot(data = data, aes(x = year)) +
+data <- data %>%
+  group_by(country_name, GWn) %>%
+  mutate(ineq_period = !is.na(mean_value) + year)
+
+ggplot(data = data %>% filter(year > 1959), aes(x = year)) +
   geom_path(aes(y = v2x_polyarchy * 100), color = "black") +
-  geom_path(aes(y = mean_value), color = "red") +
+  geom_path(aes(y = mean_value, group = ineq_period), color = "red") +
   labs(y = "Inequality and democracy\n(inequality in red, democracy in black)",
        x = "Year",
        title = "Inequality and democracy over time, V-Dem polyarchy measure") +
