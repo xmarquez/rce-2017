@@ -212,6 +212,7 @@ library(plotly)
 ggplotly(p)
 
 ```
+
 ## Regression lines
 
 Update 6/12/2017: for those who want to see the equation for the regression lines in these figures, here they are:
