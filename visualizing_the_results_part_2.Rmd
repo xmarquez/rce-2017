@@ -172,6 +172,7 @@ ggplot(data = by_country_avg, aes(x = democracy_score,
 
 As we can see, there's not much correlation between levels of democracy and levels of inequality; though democracies are very slightly more democratic than non-democracies (as indicated by the slope of the line), the difference is very small.
 
+
 It's possible that this is because of quirks in our measure of democracy. Maybe we don't have enough years, or you were too idiosyncratic in your judgments. But here's a scatterplot using the "gold standard" of democracy measures, the [V-Dem polyarchy index](https://www.v-dem.net/en/):
 
 ```{r vdemcorr}
@@ -211,6 +212,51 @@ library(plotly)
 ggplotly(p)
 
 ```
+## Regression lines
+
+Update 6/12/2017: for those who want to see the equation for the regression lines in these figures, here they are:
+
+```{r regression_table, results = "asis"}
+
+model <- lm(gini ~ pols209_democracy_score, data = by_country_avg %>%
+              rename(gini = mean_value,
+                     pols209_democracy_score = democracy_score))
+
+model2 <- lm(gini ~ v2x_polyarchy, data = data %>%
+              rename(gini = mean_value))
+  
+library(stargazer)
+
+stargazer(model, model2, type = "html")
+
+```
+
+Basically, the table tells us that an increase in democracy of one point in the POLS209 democracy score is associated with a 0.2 point decrease in the gini index, on average (remember the POLS209 democracy score goes from 0 to 40 or so, so a change from no democracy to full democracy, 40 points, is associated with 8 points' decrease in the gini index). Similarly, for the V-Dem index, a change from 0 (no democracy) to 1 (full democracy) is associated with a decrease of about 12 points in the gini index, on average. (Note this particular regression does not control for any other factors that may affect the relationship, unlike the regression on [part 3](https://xmarquez.github.io/rce-2017/visualizing_the_results_part_3.html); it's just a simple measure of the correlation between democracy and income inequality).
+
+Joshua asked whether the relationship may be nonlinear. Here's what the graphs above would look like with a nonlinear fit (a locally-weighted regression):
+
+```{r loess}
+ggplot(data = by_country_avg, aes(x = democracy_score,
+                                  y = mean_value)) +
+  geom_point(position = "jitter") +
+  geom_smooth() +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "POLS209 democracy score\n(higher is more democratic)",
+       title = "Scatterplot of income inequality against POLS209 democracy score",
+       subtitle = "(nonlinear fit)")
+
+ggplot(data = data, aes(x = v2x_polyarchy,
+                             y = mean_value)) +
+  geom_point(position = "jitter") +
+  geom_smooth() +
+  labs(y = "Net gini index of inequality\n(higher is more unequal)",
+       x = "V-Dem polyarchy index\n(higher is more democratic)",
+       title = "Scatterplot of income inequality against V-Dem polyarchy index",
+       subtitle = "(nonlinear fit)")
+
+```
+
+## Country by country
 
 But perhaps that's not quite the right way of looking at things. Inequality may be affected by all sorts of things, and it takes time to change. It's possible that what we need to see is simply whether countries that become more democratic also become more equal. Here's how that looks with the POLS209 dataset, country by country:
 
